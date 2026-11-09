@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Facial & Physiognomy Analyzer</title>
+    <!-- นำเข้าฟอนต์ Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@400;600&family=Prompt:wght@300;400;500&display=swap" rel="stylesheet">
+    
+    <!-- นำเข้าไลบรารี Google MediaPipe สำหรับสแกนใบหน้า 3D -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <!-- นำเข้าไลบรารีสำหรับสร้างไฟล์ดาวน์โหลด (PNG & PDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --gold: #D4AF37;
+            --gold-light: #F3E5AB;
+            --white: #FFFFFF;
+            --bg-color: #FAFAFA;
+            --text-dark: #333333;
+            --text-light: #777777;
+        }
+
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Noto Serif Thai', serif;
+            color: var(--gold);
+            text-align: center;
+            font-weight: 600;
+        }
+
+        p {
+            line-height: 1.6;
+            color: var(--text-light);
+            text-align: center;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 600px;
+            background-color: var(--white);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .page {
+            display: none;
+            padding: 40px 30px;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-dark); }
+        input[type="text"], input[type="email"], input[type="tel"], input[type="date"], textarea {
+            width: 100%; padding: 12px; border: 1px solid #E0E0E0; border-radius: 8px;
+            font-family: 'Prompt', sans-serif; font-size: 1rem; box-sizing: border-box;
+        }
+
+        .btn-container { display: flex; justify-content: space-between; margin-top: 30px; gap: 15px; }
+        
+        .btn {
+            background-color: var(--gold); color: var(--white); border: none;
+            padding: 15px 0; width: 100%; border-radius: 8px; font-family: 'Prompt', sans-serif;
+            font-size: 1rem; font-weight: 500; cursor: pointer;
+        }
+        .btn:hover { background-color: #B5952F; }
+        
+        .btn-outline { background-color: transparent; color: var(--gold); border: 1px solid var(--gold); }
+        .btn-outline:hover { background-color: var(--gold-light); color: var(--text-dark); }
+
+        .api-settings { background-color: #F9F9F9; padding: 20px; border-radius: 8px; margin-top: 30px; border: 1px dashed #CCC; }
+        
+        .placeholder-box {
+            background-color: var(--bg-color); border: 2px dashed var(--gold-light);
+            border-radius: 12px; min-height: 300px; display: flex; align-items: center;
+            justify-content: center; margin: 20px 0; color: var(--gold); font-weight: 500; flex-direction: column;
+        }
+
+        /* กล้องสแกนหน้า */
+        .video-wrapper {
+            position: relative; width: 100%; max-width: 400px; margin: 0 auto;
+            aspect-ratio: 3/4; background-color: #111; border-radius: 12px; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #output_canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        #input_video { display: none; }
+
+        /* ระบบโหงวเฮ้ง */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .feature-btn {
+            background-color: var(--white); border: 1px solid var(--gold-light); color: var(--text-dark);
+            padding: 15px; border-radius: 8px; font-family: 'Prompt', sans-serif; font-size: 1rem;
+            cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.02); transition: all 0.3s;
+        }
+        .feature-btn:hover, .feature-btn:active {
+            background-color: var(--gold-light); border-color: var(--gold);
+        }
+        .result-box {
+            background-color: #FFF9E6; border: 1px solid var(--gold); border-radius: 8px;
+            padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(212, 175, 55, 0.1);
+        }
+
+        /* ระบบเลื่อนภาพ Before/After */
+        .comparison-slider {
+            position: relative; width: 100%; max-width: 400px; aspect-ratio: 3/4;
+            margin: 20px auto; overflow: hidden; border-radius: 12px; background-color: #eee;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: none;
+        }
+        .comparison-slider img {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;
+        }
+        .img-before { z-index: 1; }
+        .img-after { z-index: 2; clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%); }
+        .slider-control {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; z-index: 3; cursor: ew-resize; margin: 0;
+        }
+        .slider-line {
+            position: absolute; top: 0; left: 50%; width: 4px; height: 100%;
+            background: var(--gold); z-index: 2; transform: translateX(-50%);
+            pointer-events: none;
+        }
+        .slider-btn {
+            position: absolute; top: 50%; left: 50%; width: 30px; height: 30px;
+            background: var(--white); border: 2px solid var(--gold); border-radius: 50%;
+            z-index: 2; transform: translate(-50%, -50%); display: flex;
+            align-items: center; justify-content: center; pointer-events: none; color: var(--gold);
+        }
+
+        /* ปุ่มเลือกระดับความสมจริง */
+        .level-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        .level-btn {
+            flex: 1; padding: 10px; border: 1px solid #CCC; border-radius: 8px;
+            background: var(--white); cursor: pointer; font-family: 'Prompt', sans-serif; transition: 0.3s;
+        }
+        .level-btn.active { background: var(--gold-light); border-color: var(--gold); font-weight: 500; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+
+        <!-- หน้า 1: กรอกข้อมูล -->
+        <div id="page-1" class="page active">
+            <h2>เริ่มต้นการวิเคราะห์</h2>
+            <p>กรุณากรอกข้อมูลเพื่อผลลัพธ์ที่แม่นยำ</p>
+            
+            <div class="form-group"><label>ชื่อ - นามสกุล</label><input type="text" id="userName"></div>
+            
+            <div class="api-settings">
+                <h3 style="margin-top: 0; font-size: 1rem;">ตั้งค่าระบบ AI (สำหรับการทดสอบ)</h3>
+                <div class="form-group"><label>Gemini API Key</label><input type="text" id="geminiKey"></div>
+                <div class="form-group"><label>Hugging Face API Key</label><input type="text" id="hfKey"></div>
+            </div>
+
+            <div class="btn-container">
+                <button class="btn" onclick="goToPage(2)">ถัดไป: สแกนใบหน้า</button>
+            </div>
+        </div>
+
+        <!-- หน้า 2: สแกนหน้า -->
+        <div id="page-2" class="page">
+            <h2>สแกนใบหน้าของคุณ</h2>
+            <p>มองกล้องตรงๆ ระบบจะสร้าง Grid Line 3D แบบ Real-time</p>
+            
+            <div class="video-wrapper">
+                <video id="input_video"></video>
+                <canvas id="output_canvas"></canvas>
+                <div id="cam_status" style="color: var(--gold); z-index: 10; text-align: center;">คลิกปุ่มด้านล่างเพื่อเปิดกล้อง</div>
+            </div>
+
+            <button id="startCamBtn" class="btn btn-outline" style="margin-top: 20px;" onclick="startFaceScan()">🎥 เปิดกล้องสแกนใบหน้า</button>
+
+            <div class="btn-container">
+                <button class="btn btn-outline" onclick="goToPage(1)">กลับ</button>
+                <button class="btn" onclick="goToPage(3)">วิเคราะห์ความสมดุล</button>
+            </div>
+        </div>
+
+        <!-- หน้า 3: ผลสมดุล -->
+        <div id="page-3" class="page">
+            <h2>ผลวิเคราะห์ความสมดุล</h2>
+            <p>คำนวณจากโครงสร้างตาข่าย 468 จุด บนใบหน้าคุณเทียบกับหลักสัดส่วนทองคำ</p>
+            
+            <div class="placeholder-box" style="min-height: auto; padding: 40px 20px;">
+                <h1 id="scoreDisplay" style="font-size: 3.5rem; margin: 0; color: var(--gold);">--</h1>
+                <p style="margin: 0; font-size: 1.2rem;">/ 100</p>
+            </div>
+            
+            <div style="background: #F9F9F9; padding: 15px; border-radius: 8px; text-align: center;">
+                <p id="scoreDetail" style="margin: 0; color: var(--text-dark);">กำลังรอข้อมูลจากกล้อง...</p>
+            </div>
+
+            <div class="btn-container">
+                <button class="btn btn-outline" onclick="goToPage(2)">สแกนใหม่</button>
+                <button class="btn" onclick="goToPage(4)">ตรวจสอบโหงวเฮ้ง</button>
+            </div>
+        </div>
+
+        <!-- หน้า 4: โหงวเฮ้ง -->
+        <div id="page-4" class="page">
+            <h2>โหงวเฮ้งบนใบหน้า</h2>
+            <p>แตะที่จุดบนใบหน้าเพื่อดูคำทำนายจาก AI ผู้เชี่ยวชาญ</p>
+            
+            <div class="feature-grid">
+                <button class="feature-btn" onclick="analyzePhysiognomy('ดวงตา')">👁️ ดวงตา</button>
+                <button class="feature-btn" onclick="analyzePhysiognomy('จมูก')">👃 จมูก</button>
+                <button class="feature-btn" onclick="analyzePhysiognomy('ริมฝีปาก')">👄 ริมฝีปาก</button>
+                <button class="feature-btn" onclick="analyzePhysiognomy('โครงหน้า')">🗿 โครงหน้า</button>
+            </div>
+
+            <div id="aiResultBox" class="result-box" style="display: none;">
+                <h3 id="aiResultTitle" style="margin-top:0; color: var(--gold); font-size: 1.2rem; text-align: left;">คำทำนาย</h3>
+                <p id="aiResultText" style="text-align: left; font-size: 0.95rem; color: var(--text-dark); margin-bottom: 0;"></p>
+            </div>
+
+            <div class="btn-container">
+                <button class="btn btn-outline" onclick="goToPage(3)">กลับ</button>
+                <button class="btn" onclick="goToPage(5)">จำลองศัลยกรรม</button>
+            </div>
+        </div>
+
+        <!-- หน้า 5: AI สร้างรูป -->
+        <div id="page-5" class="page">
+            <h2>ออกแบบใบหน้าใหม่</h2>
+            <p>สั่งปรับแต่งใบหน้าด้วย AI (พิมพ์ภาษาไทยได้เลย)</p>
+            
+            <div class="form-group">
+                <input type="text" id="aiPrompt" placeholder="เช่น อยากได้จมูกพส.จีน, ขอหน้าละมุนขึ้น">
+            </div>
+
+            <label>เลือกระดับการเปลี่ยนแปลง:</label>
+            <div class="level-group">
+                <button class="level-btn active" onclick="setLevel(this, 'natural')">ธรรมชาติ</button>
+                <button class="level-btn" onclick="setLevel(this, 'balanced')">สมดุล</button>
+                <button class="level-btn" onclick="setLevel(this, 'dramatic')">ชัดเจน</button>
+            </div>
+
+            <button class="btn" id="generateBtn" onclick="generateFace()">✨ สร้างภาพจำลอง (AI)</button>
+
+            <!-- พื้นที่แสดงผล Before / After -->
+            <div id="aiLoading" style="display: none; text-align: center; margin: 20px 0; color: var(--gold);">
+                กำลังใช้ AI วาดภาพ... (อาจใช้เวลา 10-20 วินาที)
+            </div>
+
+            <div class="comparison-slider" id="compareSlider">
+                <!-- ภาพ Before (ดึงจากกล้อง/หรือภาพจำลองพื้นฐาน) -->
+                <img src="https://placehold.co/400x533/f0f0f0/999?text=Before" alt="Before" class="img-before" id="imgBefore">
+                <!-- ภาพ After (AI สร้าง) -->
+                <img src="" alt="After" class="img-after" id="imgAfter">
+                
+                <div class="slider-line" id="sliderLine"></div>
+                <div class="slider-btn" id="sliderBtn">↔</div>
+                <input type="range" min="0" max="100" value="50" class="slider-control" oninput="updateSlider(this.value)">
+            </div>
+
+            <div class="btn-container">
+                <button class="btn btn-outline" onclick="goToPage(4)">กลับ</button>
+                <button class="btn" onclick="goToPage(6)">สรุปผล</button>
+            </div>
+        </div>
+
+        <!-- หน้า 6: สรุปผล -->
+        <div id="page-6" class="page">
+            <h2>สรุปผลการวิเคราะห์</h2>
+            
+            <!-- กล่องที่จะถูกแคปเจอร์ไปเป็นรูปภาพ/PDF -->
+            <div id="exportContent" style="background: var(--white); padding: 25px; border-radius: 8px; border: 1px solid var(--gold-light); margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.02);">
+                <h3 style="margin-top: 0; text-align: left; color: var(--text-dark);">รายงานคุณ <span id="reportName" style="color: var(--gold);"></span></h3>
+                <p style="text-align: left; font-size: 1.1rem; margin: 10px 0;"><strong>คะแนนสัดส่วน (Golden Ratio):</strong> <span id="reportScore" style="color: var(--gold); font-weight: 600;">--</span> / 100</p>
+                
+                <hr style="border: 0; border-top: 1px dashed var(--gold-light); margin: 20px 0;">
+                
+                <h4 style="color: var(--gold); margin-bottom: 10px; font-family: 'Prompt', sans-serif;">💡 เคล็ดลับเสริมโหงวเฮ้ง & ความงาม:</h4>
+                <ul style="color: var(--text-dark); font-size: 0.95rem; text-align: left; padding-left: 20px; line-height: 1.8;">
+                    <li><strong>การแต่งหน้า:</strong> เน้นไฮไลท์บริเวณสันจมูกและหน้าผากเพื่อเปิดรับโชคลาภ คอนทัวร์กรอบหน้าเบาๆ เพื่อเพิ่มมิติและรักษาสมดุล</li>
+                    <li><strong>ทรงผม:</strong> ทรงผมที่เปิดหน้าผาก (โหงวเฮ้งเนินทรัพย์) หรือแสกข้างจะช่วยให้ใบหน้าดูสว่างและเปิดรับโอกาสใหม่ๆ</li>
+                    <li><strong>ความมั่นใจ:</strong> ความสมดุลที่ดีที่สุดคือความมั่นใจในตัวเอง รอยยิ้มคือเครื่องสำอางและตัวดึงดูดพลังงานบวกที่ดีที่สุด</li>
+                </ul>
+            </div>
+
+            <div class="btn-container" style="flex-direction: column; gap: 10px; margin-top: 0;">
+                <button class="btn" onclick="exportPNG()">💾 ดาวน์โหลดเป็นรูปภาพ (PNG)</button>
+                <button class="btn btn-outline" onclick="exportPDF()">📄 ดาวน์โหลดเป็นเอกสาร (PDF)</button>
+            </div>
+
+            <div class="btn-container">
+                <button class="btn btn-outline" onclick="goToPage(1)" style="border: none; text-decoration: underline;">กลับไปหน้าแรก (เริ่มใหม่)</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript หลัก -->
+    <script>
+        // โหลดข้อมูลจาก LocalStorage เมื่อเปิดเว็บครั้งแรก
+        window.onload = () => {
+            if(localStorage.getItem('userName')) document.getElementById('userName').value = localStorage.getItem('userName');
+            if(localStorage.getItem('geminiKey')) document.getElementById('geminiKey').value = localStorage.getItem('geminiKey');
+            if(localStorage.getItem('hfKey')) document.getElementById('hfKey').value = localStorage.getItem('hfKey');
+        };
+
+        // ตัวแปรเก็บคะแนน
+        let currentGoldenScore = 0;
+        
+        // ตัวแปรเกี่ยวกับกล้อง MediaPipe
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        let camera = null;
+        let isScanning = false;
+        let faceMesh = null;
+
+        // ระบบเปลี่ยนหน้า
+        function goToPage(pageNumber) {
+            // บันทึกข้อมูลหน้า 1 ลงเครื่องผู้ใช้ (LocalStorage)
+            if (pageNumber === 2) {
+                localStorage.setItem('userName', document.getElementById('userName').value);
+                localStorage.setItem('geminiKey', document.getElementById('geminiKey').value);
+                localStorage.setItem('hfKey', document.getElementById('hfKey').value);
+            }
+
+            // ปิดกล้องอัตโนมัติถ้าออกจากหน้า 2
+            if (pageNumber !== 2 && isScanning) {
+                stopFaceScan();
+            }
+
+            // นำข้อมูลคะแนนไปแสดงที่หน้า 3
+            if (pageNumber === 3) {
+                document.getElementById('scoreDisplay').innerText = currentGoldenScore > 0 ? currentGoldenScore : "--";
+                if(currentGoldenScore > 0) {
+                    let msg = currentGoldenScore >= 80 ? "ใบหน้าของคุณมีสัดส่วนที่สมดุลมากตามหลัก Golden Ratio!" : "ใบหน้ามีจุดที่สามารถปรับแต่งเพื่อเพิ่มความโดดเด่นได้อีก";
+                    document.getElementById('scoreDetail').innerText = msg;
+                } else {
+                    document.getElementById('scoreDetail').innerText = "คุณยังไม่ได้สแกนใบหน้า กรุณากลับไปหน้า 2";
+                }
+            }
+
+            // นำข้อมูลมาสรุปในหน้า 6
+            if (pageNumber === 6) {
+                const nameInput = document.getElementById('userName').value;
+                document.getElementById('reportName').innerText = nameInput ? nameInput : 'ผู้ใช้งาน';
+                document.getElementById('reportScore').innerText = currentGoldenScore > 0 ? currentGoldenScore : "--";
+            }
+
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.getElementById('page-' + pageNumber).classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // ระบบเปิดกล้อง MediaPipe
+        function startFaceScan() {
+            const statusEl = document.getElementById('cam_status');
+            const btnEl = document.getElementById('startCamBtn');
+            
+            statusEl.innerText = "กำลังดาวน์โหลดโมเดล AI... (รอสักครู่)";
+            btnEl.style.display = "none";
+
+            // เริ่มต้น MediaPipe (โหลดครั้งแรกอาจใช้เวลา 3-5 วินาที)
+            if (!faceMesh) {
+                faceMesh = new FaceMesh({locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                }});
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true, // เอาความแม่นยำสูง
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                faceMesh.onResults(onResults);
+            }
+
+            // เริ่มจับภาพจากกล้อง
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if(isScanning) { await faceMesh.send({image: videoElement}); }
+                },
+                width: 400,
+                height: 533
+            });
+            
+            isScanning = true;
+            camera.start().then(() => {
+                statusEl.style.display = "none";
+            }).catch(err => {
+                statusEl.innerText = "ไม่สามารถเปิดกล้องได้ โปรดตรวจสอบการอนุญาตใช้งานกล้อง";
+                btnEl.style.display = "block";
+                isScanning = false;
+            });
+        }
+
+        // ระบบปิดกล้อง
+        function stopFaceScan() {
+            isScanning = false;
+            if(camera) { camera.stop(); }
+            document.getElementById('startCamBtn').style.display = "block";
+            document.getElementById('cam_status').style.display = "block";
+            document.getElementById('cam_status').innerText = "กล้องปิดอยู่";
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        }
+
+        // เมื่อ AI สแกนหน้าเจอ (ทำงานแบบ Real-time)
+        function onResults(results) {
+            // ปรับขนาดผ้าใบวาดรูปให้ตรงกับจอ
+            if(canvasElement.width !== canvasElement.clientWidth) {
+                canvasElement.width = canvasElement.clientWidth;
+                canvasElement.height = canvasElement.clientHeight;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // วาดภาพวิดีโอจากกล้อง
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // วาดเส้นตาข่าย (Grid Line 3D) สีทอง
+                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#D4AF37', lineWidth: 0.5});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FFFFFF'});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#FFFFFF'});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: '#D4AF37', lineWidth: 2});
+
+                // ส่งจุดไปคำนวณคะแนน
+                calculateGoldenScore(landmarks);
+            }
+            canvasCtx.restore();
+        }
+
+        // คำนวณคะแนนตามสัดส่วน (ตัวอย่างสูตร กว้าง-ยาว)
+        function calculateGoldenScore(landmarks) {
+            const top = landmarks[10];     // หน้าผาก
+            const bottom = landmarks[152]; // คาง
+            const left = landmarks[234];   // แก้มซ้าย
+            const right = landmarks[454];  // แก้มขวา
+
+            const height = Math.sqrt(Math.pow(top.x - bottom.x, 2) + Math.pow(top.y - bottom.y, 2));
+            const width = Math.sqrt(Math.pow(left.x - right.x, 2) + Math.pow(left.y - right.y, 2));
+            
+            const ratio = height / (width || 1); // ค่าอุดมคติคือ 1.618
+            const diff = Math.abs(ratio - 1.618);
+            
+            // แปลงความคลาดเคลื่อนเป็นคะแนนเต็ม 100
+            let score = 100 - (diff * 45); 
+            if(score > 100) score = 100;
+            if(score < 0) score = 0;
+            
+            // เก็บค่าไว้แสดงผลหน้า 3 (อัปเดตตลอดเวลาที่ขยับหน้า)
+            currentGoldenScore = score.toFixed(1);
+        }
+
+        // วิเคราะห์โหงวเฮ้งด้วย Gemini AI
+        async function analyzePhysiognomy(feature) {
+            const apiKey = document.getElementById('geminiKey').value.trim();
+            const resultBox = document.getElementById('aiResultBox');
+            const resultText = document.getElementById('aiResultText');
+            const resultTitle = document.getElementById('aiResultTitle');
+
+            if (!apiKey) {
+                alert('กรุณากรอก Gemini API Key ในหน้าแรกก่อนใช้งานฟีเจอร์นี้');
+                goToPage(1);
+                return;
+            }
+
+            // แสดงกล่องข้อความโหลด
+            resultBox.style.display = 'block';
+            resultTitle.innerText = `วิเคราะห์โหงวเฮ้ง: ${feature}`;
+            resultText.innerHTML = '<span style="color:var(--gold);">กำลังประมวลผลข้อมูลกับ AI ผู้เชี่ยวชาญ...</span>';
+
+            // เตรียมคำสั่งให้ AI (Prompt Engineering)
+            const prompt = `คุณคือผู้เชี่ยวชาญด้านโหงวเฮ้งและศัลยกรรมความงามระดับพรีเมียม ลูกค้าหญิงต้องการดูโหงวเฮ้งบริเวณ "${feature}" 
+            ช่วยทำนายลักษณะนิสัยและโชคลาภตามหลักโหงวเฮ้งแบบกระชับ อ่านง่าย ใช้สไตล์ภาษาที่สุภาพ หรูหรา (Luxury) 
+            และให้คำแนะนำในการเสริมจุดนี้ให้สมดุลและดวงดีขึ้น ขอความยาวไม่เกิน 4-5 บรรทัด ไม่ต้องเกริ่นนำ`;
+
+            try {
+                // เรียกใช้ Google Gemini 1.5 Flash API
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                if (!response.ok) throw new Error('ไม่สามารถเชื่อมต่อ API ได้');
+                
+                const data = await response.json();
+                const aiResponse = data.candidates[0].content.parts[0].text;
+                
+                // นำผลลัพธ์มาแสดงผล
+                resultText.innerHTML = aiResponse.replace(/\n/g, '<br>');
+                
+            } catch (error) {
+                console.error(error);
+                resultText.innerHTML = '<span style="color:red;">เกิดข้อผิดพลาดในการเชื่อมต่อ AI กรุณาตรวจสอบ API Key ว่าถูกต้องหรือไม่ หรือลองใหม่อีกครั้ง</span>';
+            }
+        }
+
+        // --- ระบบ AI Image Gen (หน้า 5) ---
+        let currentLevel = 'natural'; // ระดับเริ่มต้น
+
+        function setLevel(btn, level) {
+            document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentLevel = level;
+        }
+
+        function updateSlider(val) {
+            document.getElementById('imgAfter').style.clipPath = `polygon(${val}% 0, 100% 0, 100% 100%, ${val}% 100%)`;
+            document.getElementById('sliderLine').style.left = `${val}%`;
+            document.getElementById('sliderBtn').style.left = `${val}%`;
+        }
+
+        async function generateFace() {
+            const geminiKey = document.getElementById('geminiKey').value.trim();
+            const hfKey = document.getElementById('hfKey').value.trim();
+            const userInput = document.getElementById('aiPrompt').value.trim();
+
+            if (!geminiKey || !hfKey) {
+                alert('กรุณากรอก API Key ทั้ง Gemini และ Hugging Face ในหน้าแรกก่อนครับ');
+                return;
+            }
+            if (!userInput) {
+                alert('กรุณาพิมพ์สิ่งที่คุณต้องการปรับแก้ก่อนครับ');
+                return;
+            }
+
+            document.getElementById('generateBtn').style.display = 'none';
+            document.getElementById('aiLoading').style.display = 'block';
+            document.getElementById('compareSlider').style.display = 'none';
+
+            try {
+                // 1. ให้ Gemini เป็นล่าม แปลภาษาไทยเป็น Prompt ภาษาอังกฤษสำหรับ AI วาดรูป
+                const translatePrompt = `คุณคือวิศวกร Prompt สำหรับ Stable Diffusion แปลงความต้องการนี้: "${userInput}" 
+                ให้เป็น Prompt ภาษาอังกฤษสำหรับการปรับแก้ใบหน้าผู้หญิง (Portrait) 
+                ระดับการเปลี่ยนแปลง: ${currentLevel} (natural = slight tweak, balanced = perfect proportion, dramatic = noticeable plastic surgery style).
+                ส่งกลับมาแค่ Prompt ภาษาอังกฤษล้วนๆ ห้ามมีคำอธิบายเพิ่มเติม ห้ามมีเครื่องหมายคำพูด (ตัวอย่าง: beautiful thai woman, straight nose bridge, delicate features, high quality portrait)`;
+
+                const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: translatePrompt }] }] })
+                });
+                
+                const geminiData = await geminiRes.json();
+                const englishPrompt = geminiData.candidates[0].content.parts[0].text.trim();
+                console.log("Translated Prompt:", englishPrompt);
+
+                // 2. ส่ง Prompt ภาษาอังกฤษไปให้ Hugging Face สร้างภาพ
+                // หมายเหตุ: ใช้โมเดลฟรี SDXL หรือโมเดลพื้นฐาน
+                const hfRes = await fetch("https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${hfKey}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ 
+                        inputs: `Portrait of asian woman, 30 years old, highly detailed face, realistic, ${englishPrompt}`,
+                        parameters: { negative_prompt: "ugly, blurry, malformed, bad anatomy" }
+                    }),
+                });
+
+                if (!hfRes.ok) throw new Error('Hugging Face API Error');
+
+                // แปลงภาพที่ได้มาเป็น Blob URL
+                const blob = await hfRes.blob();
+                const imageUrl = URL.createObjectURL(blob);
+
+                // 3. แสดงผล Slider
+                document.getElementById('imgAfter').src = imageUrl;
+                
+                // สำหรับหน้า Before ถ้ามีการจับภาพจากกล้องไว้ (ในโปรดักชั่นจริงจะใช้ภาพ capture ปัจจุบันใช้รูปจำลอง)
+                // เราจะดึงรูปล่าสุดจาก Canvas ถ้ามี (จำลอง)
+                if (canvasElement && currentGoldenScore > 0) {
+                    document.getElementById('imgBefore').src = canvasElement.toDataURL();
+                }
+
+                document.getElementById('compareSlider').style.display = 'block';
+                updateSlider(50); // ตั้งค่าไว้ตรงกลาง
+                document.querySelector('.slider-control').value = 50;
+
+            } catch (error) {
+                console.error(error);
+                alert("เกิดข้อผิดพลาดในการสร้างภาพ กรุณาลองใหม่อีกครั้ง (API ฟรีอาจมีการจำกัดคิวรัน)");
+            } finally {
+                document.getElementById('generateBtn').style.display = 'block';
+                document.getElementById('aiLoading').style.display = 'none';
+            }
+        }
+
+        // --- ระบบ Export (หน้า 6) ---
+        async function exportPNG() {
+            const element = document.getElementById('exportContent');
+            const canvas = await html2canvas(element, { scale: 2 }); // เพิ่ม scale เพื่อให้ภาพคมชัด
+            const link = document.createElement('a');
+            link.download = 'Physiognomy-Report.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        async function exportPDF() {
+            const element = document.getElementById('exportContent');
+            const canvas = await html2canvas(element, { scale: 2 });
+            const imgData = canvas.toDataURL('image/png');
+            
+            // ใช้ jsPDF สร้างเอกสาร A4 (p = portrait, mm = มิลลิเมตร)
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            
+            // คำนวณสัดส่วนภาพให้พอดีหน้ากระดาษ
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+            
+            pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+            pdf.save('Physiognomy-Report.pdf');
+        }
+    </script>
+</body>
+</html>
